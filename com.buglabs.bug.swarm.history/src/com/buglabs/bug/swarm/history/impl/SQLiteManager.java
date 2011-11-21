@@ -17,6 +17,12 @@ import com.buglabs.bug.swarm.client.ISwarmSession;
 import com.buglabs.bug.swarm.client.ISwarmStringMessageListener;
 import com.buglabs.bug.swarm.client.SwarmClientFactory;
 
+/**
+ * An implementation of the IHistoryManager interface that is specific to use with SQLite databases.
+ * 
+ * @author barberdt
+ *
+ */
 public class SQLiteManager implements IHistoryManager {
 
 	private String host;
@@ -27,12 +33,24 @@ public class SQLiteManager implements IHistoryManager {
 	
 	private ISwarmSession swarmSesh = null;
 	
+	// Server hostname map
 	private HashMap<String, String> hostMap = new HashMap<String, String>() {{
 		put("production", "api.bugswarm.net");
 		put("test", "api.test.bugswarm.net");
 		put("integration", "api.int.bugswarm.net");
 	}};
 			
+	/**
+	 * Creates an instance of the SQLiteManager and sets the given instance variables.
+	 * 
+	 * @param server The name of the BUGswarm server to use. Valid types: 'production', 'test', 'integration'.
+	 * @param participationKey The participation API key of the user who's swarm will be used.
+	 * @param resourceId The id of the resource to associate with this SQLiteManager.
+	 * @param swarmId The id of the swarm to be used for managing the database.
+	 * @param dbFilepath The local filepath to the SQLite database. Example: '/home/$USERNAME/databases/my_database.db'.
+	 * 
+	 * @throws ClassNotFoundException
+	 */
 	public SQLiteManager(String server, String participationKey, String resourceId, String swarmId, String dbFilepath) throws ClassNotFoundException {
 		host = hostMap.get(server);
 		System.out.println("API Host: " + host);
@@ -42,8 +60,8 @@ public class SQLiteManager implements IHistoryManager {
 		this.dbConnectionPath = getdbConnectionPath(dbFilepath);
 		createDriverManager();
 	}
-	
-	@Override
+
+	@Override	
 	public void start() throws UnknownHostException, IOException {
 		// TODO Auto-generated method stub
 		consume();
@@ -54,7 +72,7 @@ public class SQLiteManager implements IHistoryManager {
 		// TODO Auto-generated method stub
 		stopConsuming();
 	}
-
+	
 	private void consume() throws UnknownHostException, IOException {
 		System.out.println("Starting swarm consumption");
 		swarmSesh = SwarmClientFactory.createSwarmSession(host, participationKey, resourceId, swarmId);
@@ -116,7 +134,7 @@ public class SQLiteManager implements IHistoryManager {
 			
 		});
 	}
-	
+		
 	private void stopConsuming() {		
 		swarmSesh.close();
 	}
@@ -223,15 +241,21 @@ public class SQLiteManager implements IHistoryManager {
 		String selectTable = (String) select.get("table"); 
 		System.out.println(selectTable);
 		
-		Map<String, ?> selectSelect = (Map<String, ?>) select.get("select");
+		ArrayList<String> fields = (ArrayList<String>) select.get("select");
+		
+		Map<String, ?> selectWhere = (Map<String, ?>) select.get("where");
 		ArrayList<String> columns = new ArrayList<String>();
 		ArrayList<String> values = new ArrayList<String>();
-		for (Map.Entry<String, ?> currPair : selectSelect.entrySet()) {
+		for (Map.Entry<String, ?> currPair : selectWhere.entrySet()) {
 			columns.add((String) currPair.getKey());
 			values.add((String) currPair.getValue());
 		}
 		
-		String query = "SELECT * FROM \"" + selectTable + "\" WHERE ";
+		String query = "SELECT ";
+		for (int i=0; i<fields.size()-1; i++) {
+			query += "\"" + fields.get(i) + "\", ";
+		}
+		query += "\"" + fields.get(fields.size()-1) + "\" FROM \"" + selectTable + "\" WHERE ";		
 		for (int i=0; i<columns.size()-1; i++) {
 			query += "\"" + columns.get(i) + "\"=\"" + values.get(i) + "\" AND ";
 		}
@@ -239,11 +263,18 @@ public class SQLiteManager implements IHistoryManager {
 		
 		System.out.println("Query: " + query);
 		Statement stmt = conn.createStatement();
-		ResultSet rs = stmt.executeQuery(query);
-		System.out.println("Beginning of select response");
-		System.out.println(rs);
-		System.out.println("End of select response");
+		ResultSet rs = stmt.executeQuery(query);			
+		sendResponse(fields, rs);		
 		closedbConnection(conn);
+	}
+	
+	private void sendResponse(ArrayList<String> fields, ResultSet rs) throws SQLException {
+		while (rs.next()) {			
+			for (int i=0; i<fields.size(); i++) {
+				String currField = fields.get(i);
+				
+			}
+		}
 	}
 	
 	private void createDriverManager() throws ClassNotFoundException {
