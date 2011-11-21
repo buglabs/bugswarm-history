@@ -1,8 +1,11 @@
 package com.buglabs.bug.swarm.history.impl;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.awt.List;
 import java.io.IOException;
 import java.net.UnknownHostException;
@@ -11,6 +14,7 @@ import java.sql.*;
 import com.buglabs.bug.swarm.history.IHistoryManager;
 import com.buglabs.bug.swarm.client.ISwarmJsonMessageListener;
 import com.buglabs.bug.swarm.client.ISwarmSession;
+import com.buglabs.bug.swarm.client.ISwarmStringMessageListener;
 import com.buglabs.bug.swarm.client.SwarmClientFactory;
 
 public class SQLiteManager implements IHistoryManager {
@@ -80,21 +84,33 @@ public class SQLiteManager implements IHistoryManager {
 			public void messageRecieved(Map<String, ?> payload,
 					String fromSwarm, String fromResource, boolean isPublic) {
 				// TODO Auto-generated method stub
-				if (isTableEntryMessage(payload)) {
-					System.out.println("Table entry message received:\n" + payload);					
-					Map<String, ?> tableEntry = (Map<String, ?>) payload.get("table-entry");
+				if (isTableInsertMessage(payload)) {
+					System.out.println("Table insert message received:\n" + payload);					
+					Map<String, ?> insert = (Map<String, ?>) payload.get("table-insert");
 					try {
-						insertTableEntry(tableEntry);
+						tableInsert(insert);
 					} catch (SQLException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				} else if (isTableUpdateMessage(payload)) {
 					System.out.println("Table update message received:\n" + payload);
-					insertTableUpdate(payload);
-				} else if (isTableQueryMessage(payload)) {
-					System.out.println("Table query message received:\n" + payload);
-					queryTable(payload);
+					Map<String, ?> update = (Map<String, ?>) payload.get("table-update");
+					try {
+						tableUpdate(update);
+					} catch (SQLException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				} else if (isTableSelectMessage(payload)) {
+					System.out.println("Table select message received:\n" + payload);
+					Map<String, ?> select = (Map<String, ?>) payload.get("table-select");
+					try {
+						tableSelect(select);
+					} catch (SQLException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
 				}
 			}
 			
@@ -105,9 +121,9 @@ public class SQLiteManager implements IHistoryManager {
 		swarmSesh.close();
 	}
 	
-	private boolean isTableEntryMessage(Map<String, ?> payload) {
+	private boolean isTableInsertMessage(Map<String, ?> payload) {
 		for (Map.Entry<String, ?> entry : payload.entrySet()) {
-			if (entry.getKey().equals("table-entry")) {
+			if (entry.getKey().equals("table-insert")) {
 				return true;
 			}
 		}
@@ -123,26 +139,29 @@ public class SQLiteManager implements IHistoryManager {
 		return false;
 	}
 	
-	private boolean isTableQueryMessage(Map<String, ?> payload) {
+	private boolean isTableSelectMessage(Map<String, ?> payload) {
 		for (Map.Entry<String, ?> entry : payload.entrySet()) {
-			if (entry.getKey().equals("table-query")) {
+			if (entry.getKey().equals("table-select")) {
 				return true;
 			}
 		}
 		return false;
 	}
 	
-	private void insertTableEntry(Map<String, ?> tableEntry) throws SQLException {
+	private void tableInsert(Map<String, ?> insert) throws SQLException {
 		Connection conn = opendbConnection();
-		String table = (String) tableEntry.get("table");
-		Map<String, ?> entry = (Map<String, ?>) tableEntry.get("entry");
+		
+		String insertTable = (String) insert.get("table");
+		
+		Map<String, ?> insertEntry = (Map<String, ?>) insert.get("entry");		
 		ArrayList<String> columns = new ArrayList<String>();
 		ArrayList<String> values = new ArrayList<String>();
-		for (Map.Entry<String, ?> currEntry : entry.entrySet()) {
-			columns.add((String) currEntry.getKey());
-			values.add((String) currEntry.getValue());
+		for (Map.Entry<String, ?> currPair : insertEntry.entrySet()) {
+			columns.add((String) currPair.getKey());
+			values.add((String) currPair.getValue());
 		}
-		String query = "INSERT INTO \"" + table + "\" (";
+
+		String query = "INSERT INTO \"" + insertTable + "\" (";
 		for (int i=0; i<columns.size()-1; i++) {
 			query+= "\"" + columns.get(i) + "\", ";
 		}
@@ -150,24 +169,81 @@ public class SQLiteManager implements IHistoryManager {
 		for (int i=0; i<values.size()-1; i++) {
 			query += "\"" + values.get(i) + "\", ";
 		}
-		query += "\"" + values.get(values.size()-1) + "\");";
-		System.out.println("Inserting into table " + table);
-		System.out.println("Columns: " + columns.toString());					
-		System.out.println("Values:" + values.toString());	
-		System.out.println(query);
+		query += "\"" + values.get(values.size()-1) + "\");";		
 		
+		System.out.println("Query: " + query);
 		Statement stmt = conn.createStatement();
 		stmt.execute(query);
 		System.out.println("Entry inserted");
 		closedbConnection(conn);
 	}
 	
-	private void insertTableUpdate(Map<String, ?> payload) {
+	private void tableUpdate(Map<String, ?> update) throws SQLException {
+		Connection conn = opendbConnection();
 		
+		String updateTable = (String) update.get("table");
+		
+		Map<String, ?> updateUpdate = (Map<String, ?>) update.get("update");		
+		ArrayList<String> setColumns = new ArrayList<String>();
+		ArrayList<String> setValues = new ArrayList<String>();
+		for (Map.Entry<String, ?> currPair : updateUpdate.entrySet()) {
+			setColumns.add((String) currPair.getKey());
+			setValues.add((String) currPair.getValue());
+		}
+		
+		Map<String, ?> updateEntry = (Map<String, ?>) update.get("entry");		
+		ArrayList<String> whereColumns = new ArrayList<String>();
+		ArrayList<String> whereValues = new ArrayList<String>();
+		for (Map.Entry<String, ?> currPair : updateEntry.entrySet()) {
+			whereColumns.add((String) currPair.getKey());
+			whereValues.add((String) currPair.getValue());
+		}				
+		
+		String query = "UPDATE \"" + updateTable+ "\" SET ";
+		for (int i=0; i<setColumns.size()-1; i++) {
+			query+= "\"" + setColumns.get(i) + "\"=\"" + setValues.get(i) + "\",";
+		}
+		query+= "\"" + setColumns.get(setColumns.size()-1) + "\"=\"" + setValues.get(setColumns.size()-1) + "\" WHERE ";
+		for (int i=0; i<whereColumns.size()-1; i++) {
+			query += "\"" + whereColumns.get(i) + "\"=\"" + whereValues.get(i) + "\" AND ";
+		}
+		query+= "\"" + whereColumns.get(whereColumns.size()-1) + "\"=\"" + whereValues.get(whereColumns.size()-1) + "\";";
+		
+		System.out.println("Query: " + query);
+		Statement stmt = conn.createStatement();
+		stmt.execute(query);
+		System.out.println("Entry updated");
+		closedbConnection(conn);
 	}
-	
-	private void queryTable(Map<String, ?> payload) {
 		
+	
+	private void tableSelect(Map<String, ?> select) throws SQLException {
+		Connection conn = opendbConnection();
+		
+		String selectTable = (String) select.get("table"); 
+		System.out.println(selectTable);
+		
+		Map<String, ?> selectSelect = (Map<String, ?>) select.get("select");
+		ArrayList<String> columns = new ArrayList<String>();
+		ArrayList<String> values = new ArrayList<String>();
+		for (Map.Entry<String, ?> currPair : selectSelect.entrySet()) {
+			columns.add((String) currPair.getKey());
+			values.add((String) currPair.getValue());
+		}
+		
+		String query = "SELECT * FROM \"" + selectTable + "\" WHERE ";
+		for (int i=0; i<columns.size()-1; i++) {
+			query += "\"" + columns.get(i) + "\"=\"" + values.get(i) + "\" AND ";
+		}
+		query += "\"" + columns.get(columns.size()-1) + "\"=\"" + values.get(columns.size()-1) + "\";";
+		
+		System.out.println("Query: " + query);
+		Statement stmt = conn.createStatement();
+		ResultSet rs = stmt.executeQuery(query);
+		System.out.println("Beginning of select response");
+		System.out.println(rs);
+		System.out.println("End of select response");
+		closedbConnection(conn);
 	}
 	
 	private void createDriverManager() throws ClassNotFoundException {
