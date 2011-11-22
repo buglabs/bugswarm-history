@@ -1,23 +1,15 @@
 package com.buglabs.bug.swarm.history.impl;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
-import java.awt.List;
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.sql.*;
 
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import com.buglabs.bug.swarm.history.IHistoryManager;
 import com.buglabs.bug.swarm.client.ISwarmJsonMessageListener;
 import com.buglabs.bug.swarm.client.ISwarmSession;
-import com.buglabs.bug.swarm.client.ISwarmStringMessageListener;
 import com.buglabs.bug.swarm.client.SwarmClientFactory;
 
 /**
@@ -34,9 +26,11 @@ public class SQLiteManager implements IHistoryManager {
 	private String swarmId;
 	private String dbConnectionPath;
 	
+	// The swarm session used to produce and consume information
 	private ISwarmSession swarmSesh = null;
 	
-	// Server hostname map
+	// Server environment/host map
+	@SuppressWarnings("serial")
 	private HashMap<String, String> hostMap = new HashMap<String, String>() {{
 		put("production", "api.bugswarm.net");
 		put("test", "api.test.bugswarm.net");
@@ -61,30 +55,37 @@ public class SQLiteManager implements IHistoryManager {
 		this.resourceId = resourceId;
 		this.swarmId = swarmId;		
 		this.dbConnectionPath = getdbConnectionPath(dbFilepath);
+		
+		// Create the driver manager for use with JDBC
 		createDriverManager();
 	}
 
+	
+	// Interface implementation 
+	
 	@Override	
 	public void start() throws UnknownHostException, IOException {
-		// TODO Auto-generated method stub
-		consume();
+		System.out.println("Starting swarm participation");
+		swarmSesh = SwarmClientFactory.createSwarmSession(host, participationKey, resourceId, swarmId);
+		participate();
 	}
 
 	@Override
 	public void stop() {
-		// TODO Auto-generated method stub
-		stopConsuming();
+		System.out.println("Stopping swarm participation");
+		swarmSesh.close();
 	}
 	
-	private void consume() throws UnknownHostException, IOException {
-		System.out.println("Starting swarm consumption");
-		swarmSesh = SwarmClientFactory.createSwarmSession(host, participationKey, resourceId, swarmId);
+	
+	// Participation and message handling
+	
+	// Start participating in the swarm by listening for specific database-related messages
+	private void participate() throws UnknownHostException, IOException {
 		swarmSesh.addListener(new ISwarmJsonMessageListener() {
 
 			@Override
 			public void presenceEvent(String fromSwarm, String fromResource,
 					boolean isAvailable) {
-				// TODO Auto-generated method stub
 				if (fromSwarm != null && fromSwarm.equals(swarmId)) {
 					if (isAvailable == true) {
 						System.out.println("Now monitoring messages from " + fromResource);
@@ -96,7 +97,6 @@ public class SQLiteManager implements IHistoryManager {
 
 			@Override
 			public void exceptionOccurred(ExceptionType type, String message) {
-				// TODO Auto-generated method stub
 				System.out.println("Exception of type " + type.toString() + "occurred:");
 				System.out.println(message);
 			}
@@ -104,7 +104,6 @@ public class SQLiteManager implements IHistoryManager {
 			@Override
 			public void messageRecieved(Map<String, ?> payload,
 					String fromSwarm, String fromResource, boolean isPublic) {
-				// TODO Auto-generated method stub
 				if (isTableInsertMessage(payload)) {
 					System.out.println("Table insert message received:");					
 					@SuppressWarnings("unchecked")
@@ -112,42 +111,34 @@ public class SQLiteManager implements IHistoryManager {
 					try {
 						tableInsert(insert);
 					} catch (SQLException e) {
-						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				} else if (isTableUpdateMessage(payload)) {
 					System.out.println("Table update message received:");
+					@SuppressWarnings("unchecked")
 					Map<String, ?> update = (Map<String, ?>) payload.get("table-update");
 					try {
 						tableUpdate(update);
 					} catch (SQLException e) {
-						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				} else if (isTableSelectMessage(payload)) {
 					System.out.println("Table select message received:");
+					@SuppressWarnings("unchecked")
 					Map<String, ?> select = (Map<String, ?>) payload.get("table-select");
 					try {
 						tableSelect(select, fromSwarm, fromResource);
 					} catch (SQLException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					} catch (JSONException e) {
-						// TODO Auto-generated catch block
 						e.printStackTrace();
 					} catch (IOException e) {
-						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
-			}
-			
+			}			
 		});
 	}
-		
-	private void stopConsuming() {		
-		swarmSesh.close();
-	}
+	
+	// Message type verification methods
 	
 	private boolean isTableInsertMessage(Map<String, ?> payload) {
 		for (Map.Entry<String, ?> entry : payload.entrySet()) {
@@ -176,11 +167,16 @@ public class SQLiteManager implements IHistoryManager {
 		return false;
 	}
 	
+	
+	// Table Management
+	
+	// Insert the desired information into the given table
 	private void tableInsert(Map<String, ?> insert) throws SQLException {
 		Connection conn = opendbConnection();
 		
 		String insertTable = (String) insert.get("table");
 		
+		@SuppressWarnings("unchecked")
 		Map<String, ?> insertEntry = (Map<String, ?>) insert.get("entry");		
 		ArrayList<String> columns = new ArrayList<String>();
 		ArrayList<String> values = new ArrayList<String>();
@@ -206,11 +202,13 @@ public class SQLiteManager implements IHistoryManager {
 		closedbConnection(conn);
 	}
 	
+	// Update the desired entry from the given table with the given information
 	private void tableUpdate(Map<String, ?> update) throws SQLException {
 		Connection conn = opendbConnection();
 		
 		String updateTable = (String) update.get("table");
 		
+		@SuppressWarnings("unchecked")
 		Map<String, ?> updateUpdate = (Map<String, ?>) update.get("update");		
 		ArrayList<String> setColumns = new ArrayList<String>();
 		ArrayList<String> setValues = new ArrayList<String>();
@@ -219,6 +217,7 @@ public class SQLiteManager implements IHistoryManager {
 			setValues.add((String) currPair.getValue());
 		}
 		
+		@SuppressWarnings("unchecked")
 		Map<String, ?> updateEntry = (Map<String, ?>) update.get("entry");		
 		ArrayList<String> whereColumns = new ArrayList<String>();
 		ArrayList<String> whereValues = new ArrayList<String>();
@@ -244,14 +243,16 @@ public class SQLiteManager implements IHistoryManager {
 		closedbConnection(conn);
 	}
 		
-	
-	private void tableSelect(Map<String, ?> select, String fromSwarm, String fromResource) throws SQLException, JSONException, IOException {
+	// Perform the desired select query on the given table and return the select response through the swarm
+	private void tableSelect(Map<String, ?> select, String fromSwarm, String fromResource) throws SQLException, IOException {
 		Connection conn = opendbConnection();
 		
 		String selectTable = (String) select.get("table"); 		
 		
+		@SuppressWarnings("unchecked")
 		ArrayList<String> fields = (ArrayList<String>) select.get("select");
 		
+		@SuppressWarnings("unchecked")
 		Map<String, ?> selectWhere = (Map<String, ?>) select.get("where");
 		ArrayList<String> columns = new ArrayList<String>();
 		ArrayList<String> values = new ArrayList<String>();
@@ -277,7 +278,8 @@ public class SQLiteManager implements IHistoryManager {
 		closedbConnection(conn);
 	}
 	
-	private void sendResponse(ArrayList<String> fields, ResultSet rs, String fromSwarm, String fromResource) throws SQLException, JSONException, IOException {		
+	// Method that assists the tableSelect method
+	private void sendResponse(ArrayList<String> fields, ResultSet rs, String fromSwarm, String fromResource) throws SQLException, IOException {		
 		HashMap<String, String> begin = new HashMap<String, String>();
 		begin.put("select-response", "begin");
 		begin.put("to", fromResource);
@@ -302,26 +304,34 @@ public class SQLiteManager implements IHistoryManager {
 		swarmSesh.send(end);
 	}
 	
+	
+	// Database Connectivity
+	
+	// Create the driver manager for use with JDBC
 	private void createDriverManager() throws ClassNotFoundException {
 		String url = "org.sqlite.JDBC";
 		System.out.println("Driver Manager URL: " + url);
 		Class.forName(url);		
 	}
 	
+	// Get the full path used for opening and closing connections to the database
+	private String getdbConnectionPath(String dbFilepath) {
+		String toReturn = "jdbc:sqlite:" + dbFilepath;
+		System.out.println("Database Connection Path: " + toReturn);
+		return toReturn;
+	}
+	
+	// Open up a connection with the database
 	private Connection opendbConnection() throws SQLException {
 		Connection conn = DriverManager.getConnection(dbConnectionPath);
 		System.out.println("Database Connection opened");
 		return conn;
 	}
 	
+	// Close the given connection with the database
 	private void closedbConnection(Connection conn) throws SQLException {
 		conn.close();
 		System.out.println("Database Connection closed");
 	}
-	
-	private String getdbConnectionPath(String dbFilepath) {
-		String toReturn = "jdbc:sqlite:" + dbFilepath;
-		System.out.println("Database Connection Path: " + toReturn);
-		return toReturn;
-	}
+		
 }
