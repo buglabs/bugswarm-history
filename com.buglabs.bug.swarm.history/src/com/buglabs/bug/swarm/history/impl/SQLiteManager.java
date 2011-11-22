@@ -11,6 +11,9 @@ import java.io.IOException;
 import java.net.UnknownHostException;
 import java.sql.*;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import com.buglabs.bug.swarm.history.IHistoryManager;
 import com.buglabs.bug.swarm.client.ISwarmJsonMessageListener;
 import com.buglabs.bug.swarm.client.ISwarmSession;
@@ -103,7 +106,8 @@ public class SQLiteManager implements IHistoryManager {
 					String fromSwarm, String fromResource, boolean isPublic) {
 				// TODO Auto-generated method stub
 				if (isTableInsertMessage(payload)) {
-					System.out.println("Table insert message received:\n" + payload);					
+					System.out.println("Table insert message received:");					
+					@SuppressWarnings("unchecked")
 					Map<String, ?> insert = (Map<String, ?>) payload.get("table-insert");
 					try {
 						tableInsert(insert);
@@ -112,7 +116,7 @@ public class SQLiteManager implements IHistoryManager {
 						e.printStackTrace();
 					}
 				} else if (isTableUpdateMessage(payload)) {
-					System.out.println("Table update message received:\n" + payload);
+					System.out.println("Table update message received:");
 					Map<String, ?> update = (Map<String, ?>) payload.get("table-update");
 					try {
 						tableUpdate(update);
@@ -121,11 +125,17 @@ public class SQLiteManager implements IHistoryManager {
 						e.printStackTrace();
 					}
 				} else if (isTableSelectMessage(payload)) {
-					System.out.println("Table select message received:\n" + payload);
+					System.out.println("Table select message received:");
 					Map<String, ?> select = (Map<String, ?>) payload.get("table-select");
 					try {
-						tableSelect(select);
+						tableSelect(select, fromSwarm, fromResource);
 					} catch (SQLException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (JSONException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IOException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
@@ -235,11 +245,10 @@ public class SQLiteManager implements IHistoryManager {
 	}
 		
 	
-	private void tableSelect(Map<String, ?> select) throws SQLException {
+	private void tableSelect(Map<String, ?> select, String fromSwarm, String fromResource) throws SQLException, JSONException, IOException {
 		Connection conn = opendbConnection();
 		
-		String selectTable = (String) select.get("table"); 
-		System.out.println(selectTable);
+		String selectTable = (String) select.get("table"); 		
 		
 		ArrayList<String> fields = (ArrayList<String>) select.get("select");
 		
@@ -264,17 +273,33 @@ public class SQLiteManager implements IHistoryManager {
 		System.out.println("Query: " + query);
 		Statement stmt = conn.createStatement();
 		ResultSet rs = stmt.executeQuery(query);			
-		sendResponse(fields, rs);		
+		sendResponse(fields, rs, fromSwarm, fromResource);		
 		closedbConnection(conn);
 	}
 	
-	private void sendResponse(ArrayList<String> fields, ResultSet rs) throws SQLException {
-		while (rs.next()) {			
-			for (int i=0; i<fields.size(); i++) {
-				String currField = fields.get(i);
+	private void sendResponse(ArrayList<String> fields, ResultSet rs, String fromSwarm, String fromResource) throws SQLException, JSONException, IOException {		
+		HashMap<String, String> begin = new HashMap<String, String>();
+		begin.put("select-response", "begin");
+		begin.put("to", fromResource);
+		
+		HashMap<String, String> end = new HashMap<String, String>();		
+		end.put("select-response", "end");
+		end.put("to", fromResource);
 				
+		swarmSesh.send(begin);
+		while (rs.next()) {			
+			HashMap<String, Object> payload = new HashMap<String, Object>();
+			HashMap<String, Object> response = new HashMap<String, Object>();			
+			for (int i=0; i<fields.size(); i++) {				
+				String currField = fields.get(i);
+				String currValue = rs.getString(i+1);				
+				response.put(currField, currValue);				
 			}
+			payload.put("select-response", response);
+			payload.put("to", fromResource);			
+			swarmSesh.send(payload);
 		}
+		swarmSesh.send(end);
 	}
 	
 	private void createDriverManager() throws ClassNotFoundException {
@@ -285,13 +310,13 @@ public class SQLiteManager implements IHistoryManager {
 	
 	private Connection opendbConnection() throws SQLException {
 		Connection conn = DriverManager.getConnection(dbConnectionPath);
-		System.out.println("Connection opened");
+		System.out.println("Database Connection opened");
 		return conn;
 	}
 	
 	private void closedbConnection(Connection conn) throws SQLException {
 		conn.close();
-		System.out.println("Connection closed");
+		System.out.println("Database Connection closed");
 	}
 	
 	private String getdbConnectionPath(String dbFilepath) {

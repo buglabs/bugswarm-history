@@ -7,5 +7,6 @@
 	<classpathentry kind="lib" path="/home/barberdt/eclipse-helios/workspace/swarm-libs/jackson-mapper-asl-1.9.2.jar"/>
 	<classpathentry kind="lib" path="/home/barberdt/eclipse-helios/workspace/swarm-libs/org.touge.restclient.jar"/>
 	<classpathentry kind="lib" path="/home/barberdt/eclipse-helios/workspace/swarm-libs/sqlitejdbc-v056.jar"/>
+	<classpathentry kind="lib" path="/home/barberdt/eclipse-helios/workspace/swarm-libs/json-osgi.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
