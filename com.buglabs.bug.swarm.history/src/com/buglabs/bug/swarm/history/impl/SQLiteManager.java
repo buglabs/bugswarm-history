@@ -3,6 +3,7 @@ package com.buglabs.bug.swarm.history.impl;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Date;
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.sql.*;
@@ -107,7 +108,7 @@ public class SQLiteManager implements IHistoryManager {
 				if (isTableInsertMessage(payload)) {
 					System.out.println("Table insert message received:");					
 					@SuppressWarnings("unchecked")
-					Map<String, ?> insert = (Map<String, ?>) payload.get("table-insert");
+					Map<String, ?> insert = (Map<String, ?>) payload.get("table_insert");
 					try {
 						tableInsert(insert);
 					} catch (SQLException e) {
@@ -116,7 +117,7 @@ public class SQLiteManager implements IHistoryManager {
 				} else if (isTableUpdateMessage(payload)) {
 					System.out.println("Table update message received:");
 					@SuppressWarnings("unchecked")
-					Map<String, ?> update = (Map<String, ?>) payload.get("table-update");
+					Map<String, ?> update = (Map<String, ?>) payload.get("table_update");
 					try {
 						tableUpdate(update);
 					} catch (SQLException e) {
@@ -125,12 +126,30 @@ public class SQLiteManager implements IHistoryManager {
 				} else if (isTableSelectMessage(payload)) {
 					System.out.println("Table select message received:");
 					@SuppressWarnings("unchecked")
-					Map<String, ?> select = (Map<String, ?>) payload.get("table-select");
+					Map<String, ?> select = (Map<String, ?>) payload.get("table_select");
 					try {
-						tableSelect(select, fromSwarm, fromResource);
+						tableSelect(select, fromResource);
 					} catch (SQLException e) {
 						e.printStackTrace();
 					} catch (IOException e) {
+						e.printStackTrace();
+					}
+				} else if (isHistorySelectMessage(payload)) {
+					System.out.println("History select message received");					
+					try {
+						historySelect(fromResource);
+					} catch (SQLException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				} else if (!isSelectResponse(payload)){
+					try {
+						storeMessage(payload, fromResource);
+					} catch (SQLException e) {
+						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
 				}
@@ -142,7 +161,7 @@ public class SQLiteManager implements IHistoryManager {
 	
 	private boolean isTableInsertMessage(Map<String, ?> payload) {
 		for (Map.Entry<String, ?> entry : payload.entrySet()) {
-			if (entry.getKey().equals("table-insert")) {
+			if (entry.getKey().equals("table_insert")) {
 				return true;
 			}
 		}
@@ -151,7 +170,7 @@ public class SQLiteManager implements IHistoryManager {
 	
 	private boolean isTableUpdateMessage(Map<String, ?> payload) {
 		for (Map.Entry<String, ?> entry : payload.entrySet()) {
-			if (entry.getKey().equals("table-update")) {
+			if (entry.getKey().equals("table_update")) {
 				return true;
 			}
 		}
@@ -160,13 +179,30 @@ public class SQLiteManager implements IHistoryManager {
 	
 	private boolean isTableSelectMessage(Map<String, ?> payload) {
 		for (Map.Entry<String, ?> entry : payload.entrySet()) {
-			if (entry.getKey().equals("table-select")) {
+			if (entry.getKey().equals("table_select")) {
 				return true;
 			}
 		}
 		return false;
 	}
 	
+	private boolean isHistorySelectMessage(Map<String, ?> payload) {
+		for (Map.Entry<String, ?> entry : payload.entrySet()) {
+			if (entry.getKey().equals("history_select")) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	private boolean isSelectResponse(Map<String, ?> payload) {
+		for (Map.Entry<String, ?> entry : payload.entrySet()) {
+			if (entry.getKey().equals("select_response")) {
+				return true;
+			}
+		}
+		return false;		
+	}
 	
 	// Table Management
 	
@@ -244,10 +280,11 @@ public class SQLiteManager implements IHistoryManager {
 	}
 		
 	// Perform the desired select query on the given table and return the select response through the swarm
-	private void tableSelect(Map<String, ?> select, String fromSwarm, String fromResource) throws SQLException, IOException {
+	private void tableSelect(Map<String, ?> select, String fromResource) throws SQLException, IOException {
 		Connection conn = opendbConnection();
 		
-		String selectTable = (String) select.get("table"); 		
+		String selectTable = (String) select.get("table");
+		String selectRequestId = (String) select.get("request_id");
 		
 		@SuppressWarnings("unchecked")
 		ArrayList<String> fields = (ArrayList<String>) select.get("select");
@@ -274,19 +311,47 @@ public class SQLiteManager implements IHistoryManager {
 		System.out.println("Query: " + query);
 		Statement stmt = conn.createStatement();
 		ResultSet rs = stmt.executeQuery(query);			
-		sendResponse(fields, rs, fromSwarm, fromResource);		
+		sendResponse(fields, rs, fromResource, selectRequestId);		
+		closedbConnection(conn);
+	}
+	
+	private void historySelect(String fromResource) throws SQLException, IOException {
+		Connection conn = opendbConnection();
+		
+		ArrayList<String> fields = new ArrayList<String>();
+		fields.add("timestamp");
+		fields.add("producer");
+		fields.add("message");
+		
+		String query = "SELECT * FROM messages;";
+		System.out.println("Query: " + query);
+		Statement stmt = conn.createStatement();
+		ResultSet rs = stmt.executeQuery(query);
+		sendResponse(fields, rs, fromResource, fromResource);
+		closedbConnection(conn);
+	}	
+	
+	private void storeMessage(Map<String, ?> payload, String fromResource) throws SQLException {
+		Connection conn = opendbConnection();
+		java.util.Date d = new Date();
+		String query = "INSERT INTO messages (timestamp, producer, message) VALUES (\"" + d.toString() + "\", \"" + fromResource + "\", \"" + payload.toString() + "\");";
+		System.out.println("Query: " + query);
+		Statement stmt = conn.createStatement();
+		stmt.execute(query);
 		closedbConnection(conn);
 	}
 	
 	// Method that assists the tableSelect method
-	private void sendResponse(ArrayList<String> fields, ResultSet rs, String fromSwarm, String fromResource) throws SQLException, IOException {		
+	private void sendResponse(ArrayList<String> fields, ResultSet rs, String fromResource, String selectRequestId) throws SQLException, IOException {		
 		HashMap<String, String> begin = new HashMap<String, String>();
-		begin.put("select-response", "begin");
+		begin.put("select_response", "begin");
 		begin.put("to", fromResource);
+		begin.put("request_id", selectRequestId);
 		
 		HashMap<String, String> end = new HashMap<String, String>();		
-		end.put("select-response", "end");
+		end.put("select_response", "end");
 		end.put("to", fromResource);
+		end.put("request_id", selectRequestId);
 				
 		swarmSesh.send(begin);
 		while (rs.next()) {			
@@ -297,8 +362,9 @@ public class SQLiteManager implements IHistoryManager {
 				String currValue = rs.getString(i+1);				
 				response.put(currField, currValue);				
 			}
-			payload.put("select-response", response);
-			payload.put("to", fromResource);			
+			payload.put("select_response", response);
+			payload.put("to", fromResource);
+			payload.put("request_id", selectRequestId);
 			swarmSesh.send(payload);
 		}
 		swarmSesh.send(end);
